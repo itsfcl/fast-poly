@@ -1,10 +1,54 @@
 "use strict";
 class Polynomial {
-    constructor(values) {
+    constructor(values, circle = false) {
         this.values = values;
+        this.circle = circle;
         if (values.length === 0)
             console.log("invalid polynomial");
         this.order = values.length - 1;
+    }
+    intersect(poly) {
+        let int = this.sub(poly).estimateRoot(1e-10);
+        if ((int === null || int === void 0 ? void 0 : int.value) === 0) {
+            return [true, int.x];
+        }
+        else
+            return [false, NaN];
+    }
+    reflectX() {
+        return new Polynomial(this.values.map(x => -x));
+    }
+    /**
+     * Row starts at 0
+     */
+    pascalTriangleRow(r) {
+        let vs = [1];
+        let t = 1;
+        for (let i = 1; i <= r; i++) {
+            t = t * (r + 1 - i) / (i);
+            vs.push(t);
+        }
+        return vs;
+    }
+    hshift(sv) {
+        let shiftValue = -sv;
+        let poly = new Array(this.order + 1).fill(0);
+        for (let i = 0; i < this.order; i++) {
+            let rv = this.pascalTriangleRow(this.order - i);
+            for (let j = 0; j < rv.length; j++) {
+                poly[i + j] += rv[j] * shiftValue ** j * this.values[i];
+            }
+        }
+        poly[this.order] += this.values[this.order];
+        return new Polynomial(poly);
+    }
+    vshift(shiftValue) {
+        let vs = [...this.values];
+        vs[this.order] += shiftValue;
+        return new Polynomial(vs);
+    }
+    shiftTo(x, y) {
+        return this.vshift(y).hshift(x);
     }
     dfft(coeffs, invert = false) {
         const n = coeffs.length;
@@ -146,9 +190,11 @@ class Polynomial {
         let loss = 10 ** 10, bestLoss = 10 ** 10, bestX = 0;
         let accumulator = 0;
         let stop = false;
-        let count = 1;
         while (!stop) {
-            console.log(count++);
+            if (this.calculate(x) === 0) {
+                bestX = x;
+                bestLoss = 0;
+            }
             let bv = this.calculate(x), fv = firstDer.calculate(x), sv = secondDer.calculate(x);
             x -= bv * fv / (fv ** 2 - bv * sv / 2);
             loss = this.calculate(x);
@@ -166,7 +212,62 @@ class Polynomial {
         }
         return {
             x: +bestX.toFixed(5),
-            value: +loss.toFixed(5)
+            value: +bestLoss.toFixed(5)
+        };
+    }
+    /**
+     * Currently limited to unit circle
+     */
+    static computeCircularTaylor(accuracy = 10) {
+        function binomialSeries(x, r, count) {
+            const terms = [];
+            let coeff = 1;
+            for (let k = 0; k < count; k++) {
+                if (k > 0) {
+                    coeff *= (r - k + 1) / k;
+                }
+                terms.push((coeff * Math.pow(x, k)));
+            }
+            return terms;
+        }
+        let terms = binomialSeries(-1, 0.5, accuracy);
+        let a = new Array(accuracy * 2).fill(0);
+        for (let i = 0; i < accuracy * 2; i += 2) {
+            a[i] = terms[i / 2];
+        }
+        return new Polynomial(terms.reverse(), true);
+    }
+}
+class FastPolyExtension {
+    constructor() { }
+    static singleVariableSecant(startingPair, formula) {
+        let x = 0;
+        let loss = 10 ** 10, bestLoss = 10 ** 10, bestX = 0;
+        let accumulator = 0;
+        let stop = false;
+        // px and vx insert latest lasts
+        let px = [...startingPair];
+        let vx = [formula(startingPair[0]), formula(startingPair[1])];
+        while (!stop) {
+            x = (px[0] * vx[1] - px[1] * vx[0]) / (vx[1] - vx[0]);
+            loss = formula(x);
+            bestLoss = Math.min(loss, bestLoss);
+            if (loss === bestLoss)
+                bestX = x;
+            else
+                accumulator += 1;
+            px.splice(0, 1);
+            vx.splice(0, 1);
+            px.push(x);
+            px.push(loss);
+            if (accumulator >= 10) {
+                stop = true;
+                break;
+            }
+        }
+        return {
+            x: +bestX.toFixed(5),
+            value: +bestLoss.toFixed(5)
         };
     }
 }
